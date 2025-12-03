@@ -4,16 +4,6 @@ import { auth, db } from "../firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 
-// Base64URL → Uint8Array
-function base64urlToUint8Array(base64url) {
-  const base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = base64.length % 4 === 2 ? "==" : base64.length % 4 === 3 ? "=" : "";
-  const binary = atob(base64 + pad);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
 export default function UnlockDoor() {
   const navigate = useNavigate();
 
@@ -23,30 +13,28 @@ export default function UnlockDoor() {
         return alert("You must login first!");
       }
 
-      // Retrieve from Firestore
-      const ref = doc(db, "devices", auth.currentUser.uid);
-      const snap = await getDoc(ref);
-
+      // 1️⃣ Fetch stored credential
+      const snap = await getDoc(doc(db, "devices", auth.currentUser.uid));
       if (!snap.exists()) return alert("No fingerprint registered!");
 
-      const saved = snap.data(); // { id, rawId, type }
+      const saved = snap.data();
 
-      // Convert rawId back to Uint8Array
-      const allowId = base64urlToUint8Array(saved.rawId);
+      // Convert base64url rawId ➝ Uint8Array
+      const rawId = Uint8Array.from(
+        atob(saved.rawId.replace(/-/g, "+").replace(/_/g, "/")),
+        (c) => c.charCodeAt(0)
+      );
 
-      // Generate authentication challenge
-      const challengeBytes = crypto.getRandomValues(new Uint8Array(32));
-      const challengeBase64 = btoa(String.fromCharCode(...challengeBytes))
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=/g, "");
+      // 2️⃣ Create authentication data
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
 
       const options = {
-        challenge: challengeBase64,
+        challenge,
         rpId: import.meta.env.VITE_RP_ID,
         allowCredentials: [
           {
-            id: allowId,
+            id: rawId,
             type: "public-key",
           },
         ],
@@ -55,6 +43,7 @@ export default function UnlockDoor() {
 
       console.log("Auth Options:", options);
 
+      // 3️⃣ Perform fingerprint scan
       await startAuthentication(options);
 
       alert("Door Unlocked ✔");
@@ -70,13 +59,8 @@ export default function UnlockDoor() {
       <h1>Unlock Door</h1>
 
       <button className="btn" onClick={unlock}>Scan Fingerprint</button>
-
-      <button
-        className="btn-secondary"
-        onClick={() => navigate("/dashboard")}
-      >
-        Back
-      </button>
+      <button className="btn-secondary" onClick={() => navigate("/dashboard")}>Back</button>
     </div>
   );
 }
+
