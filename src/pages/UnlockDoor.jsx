@@ -4,17 +4,18 @@ import { auth, db } from "../firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 
+// Base64URL → Uint8Array
+function base64urlToUint8Array(base64url) {
+  const base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = base64.length % 4 === 2 ? "==" : base64.length % 4 === 3 ? "=" : "";
+  const binary = atob(base64 + pad);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 export default function UnlockDoor() {
   const navigate = useNavigate();
-
-  const base64urlToArrayBuffer = (base64url) => {
-    const pad = "=".repeat((4 - (base64url.length % 4)) % 4);
-    const base64 = (base64url + pad).replace(/-/g, "+").replace(/_/g, "/");
-    const raw = atob(base64);
-    const buffer = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) buffer[i] = raw.charCodeAt(i);
-    return buffer.buffer;
-  };
 
   const unlock = async () => {
     try {
@@ -22,32 +23,33 @@ export default function UnlockDoor() {
         return alert("You must login first!");
       }
 
-      // Load stored fingerprint credential
-      const snap = await getDoc(doc(db, "devices", auth.currentUser.uid));
+      // Retrieve from Firestore
+      const ref = doc(db, "devices", auth.currentUser.uid);
+      const snap = await getDoc(ref);
+
       if (!snap.exists()) return alert("No fingerprint registered!");
 
-      const saved = snap.data().credential;
+      const saved = snap.data(); // { id, rawId, type }
 
-      // REAL credential rawId (Base64URL)
-      const rawIdBase64url = saved.rawId;
+      // Convert rawId back to Uint8Array
+      const allowId = base64urlToUint8Array(saved.rawId);
 
-      // Convert → ArrayBuffer
-      const rawIdBuffer = base64urlToArrayBuffer(rawIdBase64url);
-
-      // Generate challenge
-      const challenge = crypto.getRandomValues(new Uint8Array(32));
+      // Generate authentication challenge
+      const challengeBytes = crypto.getRandomValues(new Uint8Array(32));
+      const challengeBase64 = btoa(String.fromCharCode(...challengeBytes))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=/g, "");
 
       const options = {
-        challenge,
+        challenge: challengeBase64,
         rpId: import.meta.env.VITE_RP_ID,
-
         allowCredentials: [
           {
-            id: rawIdBuffer, // MUST be ArrayBuffer
+            id: allowId,
             type: "public-key",
           },
         ],
-
         userVerification: "required",
       };
 
@@ -67,9 +69,7 @@ export default function UnlockDoor() {
     <div className="page">
       <h1>Unlock Door</h1>
 
-      <button className="btn" onClick={unlock}>
-        Scan Fingerprint
-      </button>
+      <button className="btn" onClick={unlock}>Scan Fingerprint</button>
 
       <button
         className="btn-secondary"

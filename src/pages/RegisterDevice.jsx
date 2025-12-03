@@ -4,6 +4,14 @@ import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 
+// Helper: Convert ArrayBuffer → Base64URL
+function bufferToBase64URL(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
 export default function RegisterDevice() {
   const navigate = useNavigate();
 
@@ -14,18 +22,22 @@ export default function RegisterDevice() {
         return;
       }
 
-      // Generate challenge
-      const challenge = crypto.getRandomValues(new Uint8Array(32));
+      // Generate proper challenge
+      const challengeBytes = crypto.getRandomValues(new Uint8Array(32));
+      const challengeBase64 = bufferToBase64URL(challengeBytes);
 
       const options = {
-        challenge,
+        challenge: challengeBase64,
+
         rp: {
           name: "Smart Door Lock",
           id: import.meta.env.VITE_RP_ID,
         },
 
         user: {
-          id: new TextEncoder().encode(auth.currentUser.uid),
+          id: bufferToBase64URL(
+            new TextEncoder().encode(auth.currentUser.uid)
+          ),
           name: auth.currentUser.email,
           displayName: auth.currentUser.email,
         },
@@ -45,22 +57,13 @@ export default function RegisterDevice() {
 
       console.log("WebAuthn Registration Options:", options);
 
-      // This triggers fingerprint/Windows Hello
+      // Create credential
       const credential = await startRegistration(options);
 
-      // Convert rawId (ArrayBuffer) → base64url
-      const rawIdBase64url = btoa(
-        String.fromCharCode(...new Uint8Array(credential.rawId))
-      )
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=/g, "");
-
-      // Store ONLY required fields
+      // Save to Firestore
       await setDoc(doc(db, "devices", auth.currentUser.uid), {
-        id: credential.id,               // string
-        rawId: rawIdBase64url,           // base64url
-        type: credential.type            // "public-key"
+        rawId: bufferToBase64URL(credential.rawId),
+        cred: credential,
       });
 
       alert("Fingerprint Registered Successfully!");
@@ -80,10 +83,7 @@ export default function RegisterDevice() {
         Register Fingerprint
       </button>
 
-      <button
-        className="btn-secondary"
-        onClick={() => navigate("/dashboard")}
-      >
+      <button className="btn-secondary" onClick={() => navigate("/dashboard")}>
         Back
       </button>
     </div>
