@@ -24,22 +24,20 @@ export default function RegisterDevice() {
         return;
       }
 
-      // Generate proper challenge
-      const challengeBytes = crypto.getRandomValues(new Uint8Array(32));
-      const challengeBase64 = bufferToBase64URL(challengeBytes);
+      // Generate challenge as Uint8Array
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
 
       const options = {
-        challenge: challengeBase64,
+        challenge, // pass Uint8Array directly
 
         rp: {
           name: "Smart Door Lock",
-          id: import.meta.env.VITE_RP_ID,
+          id: import.meta.env.VITE_RP_ID, // MUST match your Vercel domain
         },
 
         user: {
-          id: bufferToBase64URL(
-            new TextEncoder().encode(auth.currentUser.uid)
-          ),
+          id: new TextEncoder().encode(auth.currentUser.uid),
           name: auth.currentUser.email,
           displayName: auth.currentUser.email,
         },
@@ -70,7 +68,6 @@ export default function RegisterDevice() {
 
       alert("Fingerprint Registered Successfully!");
       navigate("/dashboard");
-
     } catch (err) {
       console.error("WebAuthn Registration Failed:", err);
       alert("Registration Failed ❌");
