@@ -12,6 +12,8 @@ function bufferToBase64URL(buffer) {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
+console.log("🔥 USING NEW REGISTER DEVICE FILE");
+
 export default function RegisterDevice() {
   const navigate = useNavigate();
 
